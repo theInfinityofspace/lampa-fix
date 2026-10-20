@@ -27,14 +27,21 @@
     var lastSent = '';
     var lastSentAt = 0;
 
-    function poster(card) {
-        if (card.img && /^https?:\/\//.test(card.img)) return card.img;
-        var path = card.poster_path || card.backdrop_path;
+    function tmdbImage(size, path) {
         if (!path) return '';
         try {
-            if (Lampa.TMDB && typeof Lampa.TMDB.image === 'function') return Lampa.TMDB.image('t/p/w300' + path);
+            if (Lampa.TMDB && typeof Lampa.TMDB.image === 'function') return Lampa.TMDB.image('t/p/' + size + path);
         } catch (e) {}
-        return 'https://image.tmdb.org/t/p/w300' + path;
+        return 'https://image.tmdb.org/t/p/' + size + path;
+    }
+
+    function poster(card) {
+        if (card.img && /^https?:\/\//.test(card.img)) return card.img;
+        return tmdbImage('w300', card.poster_path);
+    }
+
+    function year(card) {
+        return ((card.release_date || card.first_air_date || '') + '').slice(0, 4);
     }
 
     function collect() {
@@ -44,7 +51,9 @@
                 id: c.id,
                 tv: !!(c.name || c.first_air_date || c.number_of_seasons),
                 t: c.title || c.name || '',
-                p: poster(c)
+                y: year(c),
+                p: poster(c),
+                b: tmdbImage('w500', c.backdrop_path) // кадр 16:9 для картки на головному екрані
             };
         });
     }
