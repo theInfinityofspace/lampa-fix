@@ -114,10 +114,44 @@
         }, function () { /* лаунчер недоступний — спробуємо пізніше */ }, false, { dataType: 'text' });
     }
 
+    // ---------- 3. Новинки (розділ «Релізи» Lampa: вийшли в цифровій якості) ----------
+    var RELEASES = 'http://127.0.0.1:8977/releases?data=';
+    var releasesSentAt = 0;
+
+    function syncReleases() {
+        if (!window.Lampa || !Lampa.Api || typeof Lampa.Api.relise !== 'function' || !Lampa.Reguest) return;
+        if (releasesSentAt && Date.now() - releasesSentAt < 6 * 3600000) return; // раз на 6 годин
+        Lampa.Api.relise({ page: 1 }, function (data) {
+            var list = ((data && data.results) || []).filter(function (c) {
+                return c && c.id && c.source === 'tmdb' && (c.backdrop_path || c.poster_path);
+            }).slice(0, 20).map(function (c) {
+                var isTv = !!(c.name || c.first_air_date);
+                return {
+                    id: c.id,
+                    tv: isTv,
+                    t: c.title || c.name || '',
+                    y: year(c),
+                    p: poster(c),
+                    b: tmdbImage('w500', c.backdrop_path),
+                    q: (c.release_quality || '') + '',
+                    r: c.imdb_rating ? (+c.imdb_rating).toFixed(1) : ''
+                };
+            });
+            if (!list.length) return;
+            var net = new Lampa.Reguest();
+            if (typeof net.timeout === 'function') net.timeout(3000);
+            net.silent(RELEASES + encodeURIComponent(JSON.stringify(list)), function () {
+                releasesSentAt = Date.now();
+            }, function () { /* лаунчер недоступний — спробуємо пізніше */ }, false, { dataType: 'text' });
+        }, function () {});
+    }
+
     function start() {
         patchParser();
         sync();
         setInterval(sync, 15000);
+        setTimeout(syncReleases, 8000);
+        setInterval(syncReleases, 60000); // перевірка щохвилини, саме надсилання — раз на 6 год
     }
 
     if (!patchParser()) {
