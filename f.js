@@ -194,10 +194,25 @@
     function tmdbDetails(type, id, done) {
         var key = (Lampa.TMDB && typeof Lampa.TMDB.key === 'function') ? Lampa.TMDB.key() : '';
         var lang = Lampa.Storage.get('language', 'uk');
-        var url = Lampa.TMDB.api(type + '/' + id + '?api_key=' + key + '&language=' + lang);
+        var url = Lampa.TMDB.api(type + '/' + id + '?api_key=' + key + '&language=' + lang + '&append_to_response=release_dates');
         var net = new Lampa.Reguest();
         if (typeof net.timeout === 'function') net.timeout(8000);
         net.silent(url, function (d) { done(d && d.id ? d : null); }, function () { done(null); });
+    }
+
+    // Чи є фільм у нормальній якості: настала дата цифрового (4) чи фізичного (5) релізу хоч у одній країні.
+    // До цього фільм іде лише в кіно, і онлайн є тільки «екранки».
+    function availableInQuality(c) {
+        var now = Date.now();
+        var countries = (c.release_dates && c.release_dates.results) || [];
+        for (var i = 0; i < countries.length; i++) {
+            var dates = countries[i].release_dates || [];
+            for (var j = 0; j < dates.length; j++) {
+                var t = dates[j].type;
+                if ((t === 4 || t === 5) && Date.parse(dates[j].release_date) <= now) return true;
+            }
+        }
+        return false;
     }
 
     function syncWatching() {
@@ -205,13 +220,12 @@
         if (watchingSentAt && Date.now() - watchingSentAt < 6 * 3600000) return; // раз на 6 годин
         new Lampa.Reguest().silent(TOP_URL, function (top) {
             var ids = ((top && top.items) || []).map(function (x) { return (x.id || '').split(':'); })
-                .filter(function (p) { return p[0] === 'movie' && p[1]; }) // лише фільми, без серіалів
-                .slice(0, 20);
+                .filter(function (p) { return p[0] === 'movie' && p[1]; }); // лише фільми, без серіалів
             var result = new Array(ids.length), left = ids.length;
             if (!left) return;
             ids.forEach(function (p, i) {
                 tmdbDetails(p[0], p[1], function (c) {
-                    if (c && (c.backdrop_path || c.poster_path)) {
+                    if (c && (c.backdrop_path || c.poster_path) && availableInQuality(c)) {
                         result[i] = {
                             id: c.id,
                             tv: p[0] === 'tv',
@@ -223,7 +237,7 @@
                         };
                     }
                     if (--left === 0) {
-                        var list = result.filter(Boolean);
+                        var list = result.filter(Boolean).slice(0, 20); // порядок популярності зберігається
                         if (!list.length) return;
                         var net = new Lampa.Reguest();
                         if (typeof net.timeout === 'function') net.timeout(3000);
