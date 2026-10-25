@@ -118,9 +118,9 @@
     var RELEASES = 'http://127.0.0.1:8977/releases?data=';
     var releasesSentAt = 0;
 
-    // Лише Full HD і вище. WEB-DL — цифровий реліз зі стрімінгу, як правило 1080p/4K;
-    // BDRip/HDRip/WEBRip/CAM найчастіше 720p і нижче — їх відкидаємо.
-    var GOOD_QUALITY = /^(4k|2160p?|uhd|fhd|1080p?|webdl|web-dl|bluray|blu-ray|bdremux|remux)$/i;
+    // Лише гарантовано висока якість: 4K, Blu-ray/Remux, явні 1080p/FHD.
+    // WEB-DL не беремо: CUB не вказує роздільність, тож це може бути й 720p.
+    var GOOD_QUALITY = /^(4k|2160p?|uhd|fhd|1080p?|bluray|blu-ray|bdremux|remux)$/i;
 
     function syncReleases() {
         if (!window.Lampa || !Lampa.Api || typeof Lampa.Api.relise !== 'function' || !Lampa.Reguest) return;
@@ -133,8 +133,8 @@
                     if (c && c.id && c.source === 'tmdb' && (c.backdrop_path || c.poster_path) &&
                         GOOD_QUALITY.test(((c.release_quality || '') + '').replace(/\s/g, ''))) collected.push(c);
                 });
-                // Добираємо до 20 гідних релізів, але не більше 4 сторінок.
-                if (collected.length < 20 && page < 4 && data && data.results && data.results.length) { page++; load(); }
+                // Добираємо до 20 гідних релізів, але не більше 8 сторінок.
+                if (collected.length < 20 && page < 8 && data && data.results && data.results.length) { page++; load(); }
                 else send(collected.slice(0, 20));
             }, function () { if (collected.length) send(collected.slice(0, 20)); });
         }
@@ -165,7 +165,7 @@
     // ---------- 4. Зараз дивляться (що найчастіше відкривають користувачі Lampa за тиждень) ----------
     // Джерело — той самий сервіс, що й рядок «Спільнота дивиться на тижні» (плагін CommunityWatches).
     var WATCHING = 'http://127.0.0.1:8977/watching?data=';
-    var TOP_URL = 'https://wh.lme.isroot.in/v2/top?period=7d&top=desc&page=1&per_page=20';
+    var TOP_URL = 'https://wh.lme.isroot.in/v2/top?period=7d&top=desc&page=1&per_page=60'; // з запасом: беремо лише фільми
     var watchingSentAt = 0;
 
     function tmdbDetails(type, id, done) {
@@ -182,7 +182,8 @@
         if (watchingSentAt && Date.now() - watchingSentAt < 6 * 3600000) return; // раз на 6 годин
         new Lampa.Reguest().silent(TOP_URL, function (top) {
             var ids = ((top && top.items) || []).map(function (x) { return (x.id || '').split(':'); })
-                .filter(function (p) { return (p[0] === 'movie' || p[0] === 'tv') && p[1]; });
+                .filter(function (p) { return p[0] === 'movie' && p[1]; }) // лише фільми, без серіалів
+                .slice(0, 20);
             var result = new Array(ids.length), left = ids.length;
             if (!left) return;
             ids.forEach(function (p, i) {
