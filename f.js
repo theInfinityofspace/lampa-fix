@@ -100,8 +100,31 @@
         });
     }
 
+    // Те, що прибрали з «Продовжити перегляд» на головному екрані (утримання OK), видаляємо з історії Lampa.
+    function applyHidden(done) {
+        var net = new Lampa.Reguest();
+        if (typeof net.timeout === 'function') net.timeout(3000);
+        net.silent('http://127.0.0.1:8977/hidden', function (list) {
+            try {
+                if (typeof list === 'string') list = JSON.parse(list);
+                var history = Lampa.Favorite.get({ type: 'history' }) || [];
+                (list || []).forEach(function (h) {
+                    history.forEach(function (c) {
+                        var isTv = !!(c.name || c.first_air_date || c.number_of_seasons);
+                        if (c.id == h.id && isTv === !!h.tv) Lampa.Favorite.remove('history', c);
+                    });
+                });
+            } catch (e) {}
+            done();
+        }, function () { done(); });
+    }
+
     function sync() {
         if (!window.Lampa || !Lampa.Favorite || !Lampa.Reguest) return;
+        applyHidden(sendHistory);
+    }
+
+    function sendHistory() {
         var json;
         try { json = JSON.stringify(collect()); } catch (e) { return; }
         // Надсилаємо при зміні, а також раз на 10 хв — якщо лаунчер перезапускався.
@@ -195,7 +218,8 @@
                             t: c.title || c.name || '',
                             y: year(c),
                             p: tmdbImage('w300', c.poster_path),
-                            b: tmdbImage('w500', c.backdrop_path)
+                            b: tmdbImage('w500', c.backdrop_path),
+                            r: c.vote_average ? (+c.vote_average).toFixed(1) : '' // рейтинг TMDB
                         };
                     }
                     if (--left === 0) {
