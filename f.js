@@ -118,13 +118,28 @@
     var RELEASES = 'http://127.0.0.1:8977/releases?data=';
     var releasesSentAt = 0;
 
+    // Лише Full HD і вище. WEB-DL — цифровий реліз зі стрімінгу, як правило 1080p/4K;
+    // BDRip/HDRip/WEBRip/CAM найчастіше 720p і нижче — їх відкидаємо.
+    var GOOD_QUALITY = /^(4k|2160p?|uhd|fhd|1080p?|webdl|web-dl|bluray|blu-ray|bdremux|remux)$/i;
+
     function syncReleases() {
         if (!window.Lampa || !Lampa.Api || typeof Lampa.Api.relise !== 'function' || !Lampa.Reguest) return;
         if (releasesSentAt && Date.now() - releasesSentAt < 6 * 3600000) return; // раз на 6 годин
-        Lampa.Api.relise({ page: 1 }, function (data) {
-            var list = ((data && data.results) || []).filter(function (c) {
-                return c && c.id && c.source === 'tmdb' && (c.backdrop_path || c.poster_path);
-            }).slice(0, 20).map(function (c) {
+        var collected = [];
+        var page = 1;
+        function load() {
+            Lampa.Api.relise({ page: page }, function (data) {
+                ((data && data.results) || []).forEach(function (c) {
+                    if (c && c.id && c.source === 'tmdb' && (c.backdrop_path || c.poster_path) &&
+                        GOOD_QUALITY.test(((c.release_quality || '') + '').replace(/\s/g, ''))) collected.push(c);
+                });
+                // Добираємо до 20 гідних релізів, але не більше 4 сторінок.
+                if (collected.length < 20 && page < 4 && data && data.results && data.results.length) { page++; load(); }
+                else send(collected.slice(0, 20));
+            }, function () { if (collected.length) send(collected.slice(0, 20)); });
+        }
+        function send(cards) {
+            var list = cards.map(function (c) {
                 var isTv = !!(c.name || c.first_air_date);
                 return {
                     id: c.id,
@@ -143,6 +158,56 @@
             net.silent(RELEASES + encodeURIComponent(JSON.stringify(list)), function () {
                 releasesSentAt = Date.now();
             }, function () { /* лаунчер недоступний — спробуємо пізніше */ }, false, { dataType: 'text' });
+        }
+        load();
+    }
+
+    // ---------- 4. Зараз дивляться (що найчастіше відкривають користувачі Lampa за тиждень) ----------
+    // Джерело — той самий сервіс, що й рядок «Спільнота дивиться на тижні» (плагін CommunityWatches).
+    var WATCHING = 'http://127.0.0.1:8977/watching?data=';
+    var TOP_URL = 'https://wh.lme.isroot.in/v2/top?period=7d&top=desc&page=1&per_page=20';
+    var watchingSentAt = 0;
+
+    function tmdbDetails(type, id, done) {
+        var key = (Lampa.TMDB && typeof Lampa.TMDB.key === 'function') ? Lampa.TMDB.key() : '';
+        var lang = Lampa.Storage.get('language', 'uk');
+        var url = Lampa.TMDB.api(type + '/' + id + '?api_key=' + key + '&language=' + lang);
+        var net = new Lampa.Reguest();
+        if (typeof net.timeout === 'function') net.timeout(8000);
+        net.silent(url, function (d) { done(d && d.id ? d : null); }, function () { done(null); });
+    }
+
+    function syncWatching() {
+        if (!window.Lampa || !Lampa.Reguest || !Lampa.TMDB || typeof Lampa.TMDB.api !== 'function') return;
+        if (watchingSentAt && Date.now() - watchingSentAt < 6 * 3600000) return; // раз на 6 годин
+        new Lampa.Reguest().silent(TOP_URL, function (top) {
+            var ids = ((top && top.items) || []).map(function (x) { return (x.id || '').split(':'); })
+                .filter(function (p) { return (p[0] === 'movie' || p[0] === 'tv') && p[1]; });
+            var result = new Array(ids.length), left = ids.length;
+            if (!left) return;
+            ids.forEach(function (p, i) {
+                tmdbDetails(p[0], p[1], function (c) {
+                    if (c && (c.backdrop_path || c.poster_path)) {
+                        result[i] = {
+                            id: c.id,
+                            tv: p[0] === 'tv',
+                            t: c.title || c.name || '',
+                            y: year(c),
+                            p: tmdbImage('w300', c.poster_path),
+                            b: tmdbImage('w500', c.backdrop_path)
+                        };
+                    }
+                    if (--left === 0) {
+                        var list = result.filter(Boolean);
+                        if (!list.length) return;
+                        var net = new Lampa.Reguest();
+                        if (typeof net.timeout === 'function') net.timeout(3000);
+                        net.silent(WATCHING + encodeURIComponent(JSON.stringify(list)), function () {
+                            watchingSentAt = Date.now();
+                        }, function () {}, false, { dataType: 'text' });
+                    }
+                });
+            });
         }, function () {});
     }
 
@@ -151,7 +216,8 @@
         sync();
         setInterval(sync, 15000);
         setTimeout(syncReleases, 8000);
-        setInterval(syncReleases, 60000); // перевірка щохвилини, саме надсилання — раз на 6 год
+        setTimeout(syncWatching, 12000);
+        setInterval(function () { syncReleases(); syncWatching(); }, 60000); // перевірка щохвилини, надсилання — раз на 6 год
     }
 
     if (!patchParser()) {
